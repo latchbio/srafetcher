@@ -1,3 +1,4 @@
 .env/
 .latch_report.tar.gz
 .logs/
+lytekit/

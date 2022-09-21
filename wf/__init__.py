@@ -26,11 +26,9 @@ def generate_fastqs_for_sra(sra_id: str) -> None:
     subprocess.run(fastq_dump, shell=True, check=True)
 
 def gzip_fastq(file: Path) -> None:
-    with open(file, "rb") as f_in:
-        with gzip.open(file.with_suffix(".fastq.gz"), "wb") as f_out:
-            shutil.copyfileobj(f_in, f_out)
 
-    file.unlink()
+    pigz = f"pigz {str(file)}"
+    subprocess.run(pigz, shell=True, check=True)
 
 @medium_task
 def download_sra(sra_list: List[str], output_location: LatchDir) -> LatchDir:
@@ -40,7 +38,7 @@ def download_sra(sra_list: List[str], output_location: LatchDir) -> LatchDir:
     
     print("Finished downloading and converting all SRA files\nGunzipping result files...")
     output_files = Path("/root/fastq").glob("**/*.fastq")
-    with Pool(16) as p:
+    with Pool(2) as p:
         p.map(gzip_fastq, output_files)
 
     return LatchDir("/root/fastq", output_location.remote_path)

@@ -23,11 +23,15 @@ SHELL ["conda", "run", "-n", "sra", "/bin/bash", "-c"]
 
 RUN conda install -c "bioconda/label/main" sra-tools
 
+RUN apt install pigz
+
 # STOP HERE:
 # The following lines are needed to ensure your build environement works
 # correctly with latch.
 RUN python3 -m pip install --upgrade latch
 RUN pip install requests
+COPY lytekit /root/lytekit
+RUN pip install -e /root/lytekit
 COPY wf /root/wf
 ARG tag
 ENV FLYTE_INTERNAL_IMAGE $tag
