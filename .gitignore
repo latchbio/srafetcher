@@ -2,3 +2,7 @@
 .latch_report.tar.gz
 .logs/
 lytekit/
+**/__pycache__
+.latch
+.venv/
+

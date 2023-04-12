@@ -1,0 +1,2 @@
+recursive-include latch_cli/services/init *
+
