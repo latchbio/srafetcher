@@ -349,7 +349,7 @@ class LatchParameter:
 
     @property
     def dict(self):
-        parameter_dict: dict[str, object] = {"display_name": self.display_name}
+        parameter_dict = {"display_name": self.display_name}
         if self.output:
             parameter_dict["output"] = True
         if self.batch_table_column:
@@ -357,7 +357,7 @@ class LatchParameter:
         if self.samplesheet:
             parameter_dict["samplesheet"] = True
 
-        temp_dict: dict[str, object] = {"hidden": self.hidden}
+        temp_dict = {"hidden": self.hidden}
         if self.section_title is not None:
             temp_dict["section_title"] = self.section_title
         if self._custom_ingestion is not None:

@@ -3,9 +3,11 @@ from multiprocessing import Pool
 from pathlib import Path
 from typing import List, Optional
 
+import pandas as pd
 import pysradb as sra
 
-from latch import medium_task, workflow
+from latch import large_task, workflow
+from latch.registry.table import Table
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import (
     Fork,
@@ -52,12 +54,13 @@ def download_sras(sra_list: List[str], output_location: LatchDir) -> LatchDir:
     return LatchDir("/root/fastq", output_location.remote_path)
 
 
-@medium_task
+@large_task
 def download(
     download_type_fork: str,
     sra_project: Optional[str],
     sra_ids: Optional[List[str]],
     output_location: LatchDir,
+    metadata_table_id: Optional[str] = None,
 ) -> LatchDir:
     if download_type_fork == "sra_ids":
         if sra_ids is None:
@@ -68,10 +71,18 @@ def download(
         raise ValueError("no SRA project to download")
 
     sra_db = sra.SRAweb()
-    df = sra_db.sra_metadata(sra_project)
+    df: pd.DataFrame = sra_db.sra_metadata(sra_project)
 
     sra_index = df.columns.get_loc("run_accession")
     srx_index = df.columns.get_loc("experiment_accession")
+
+    columns_to_idxs = {str(column): df.columns.get_loc(column) for column in df}
+    if metadata_table_id is not None:
+        t = Table(metadata_table_id)
+        with t.update() as u:
+            for column in df:
+                u.upsert_column(str(column), str)
+            u.upsert_column("Downloaded", LatchDir)
 
     for row in df.itertuples(index=False):
         srx_id = row[srx_index]
@@ -96,6 +107,19 @@ def download(
             ],
             check=True,
         )
+
+        if metadata_table_id is not None:
+            t = Table(metadata_table_id)
+            with t.update() as u:
+                u.upsert_record(
+                    sra_id,
+                    Downloaded=LatchDir(
+                        f"{output_location.remote_directory}/{sra_project}/{srx_id}"
+                    ),
+                    **{
+                        column: str(row[idx]) for column, idx in columns_to_idxs.items()
+                    },
+                )
 
     return LatchDir(
         "/root/pysradb_downloads",
@@ -131,6 +155,11 @@ metadata = LatchMetadata(
             batch_table_column=True,
             output=True,
         ),
+        "metadata_table_id": LatchParameter(
+            display_name="Output Metadata Table",
+            description="Optional Table to store Project Metadata",
+            batch_table_column=True,
+        ),
     },
     tags=[],
     flow=[
@@ -144,7 +173,7 @@ metadata = LatchMetadata(
             ),
             sra_project=ForkBranch(
                 "Specify Project ID",
-                Params("sra_project"),
+                Params("sra_project", "metadata_table_id"),
                 _tmp_unwrap_optionals=["sra_project"],
             ),
         ),
@@ -159,6 +188,7 @@ def sra_fetcher(
     sra_project: Optional[str],
     sra_ids: Optional[List[str]],
     output_location: LatchDir = LatchDir("latch:///SRA FASTQs/"),
+    metadata_table_id: Optional[str] = None,
 ) -> LatchDir:
     """Download .sra file from accession number, unpack it into FASTQs, gunzip them, and deposit them into Latch Data.
 
@@ -169,6 +199,7 @@ def sra_fetcher(
         sra_project=sra_project,
         sra_ids=sra_ids,
         output_location=output_location,
+        metadata_table_id=metadata_table_id,
     )
 
 

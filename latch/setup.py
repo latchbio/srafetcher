@@ -2,7 +2,7 @@ import sys
 
 from setuptools import find_packages, setup
 
-MIN_PYTHON_VERSION = (3, 7)
+MIN_PYTHON_VERSION = (3, 8)
 CURRENT_PYTHON = sys.version_info[:2]
 
 if CURRENT_PYTHON < MIN_PYTHON_VERSION:
@@ -14,7 +14,7 @@ if CURRENT_PYTHON < MIN_PYTHON_VERSION:
 
 setup(
     name="latch",
-    version="v2.18.0",
+    version="v2.19.0",
     author_email="kenny@latch.bio",
     description="The Latchbio SDK",
     packages=find_packages(),
@@ -47,7 +47,8 @@ setup(
         "prompt-toolkit==3.0.33",
         "watchfiles==0.18.1",
         "gql==3.4.0",
-        "aiohttp==3.8.4",
+        "graphql-core==3.2.3",
+        "requests-toolbelt==0.10.1",
     ],
     classifiers=[
         "Programming Language :: Python :: 3.7",

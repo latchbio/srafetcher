@@ -8,12 +8,6 @@ sra_project = "SRP396626"
 
 sra_db = sra.SRAweb()
 df = sra_db.sra_metadata(sra_project)
-# df = sra_db.download(
-#     sra_project,
-#     out_dir="/root/pysradb_downloads",
-#     skip_confirmation=True,
-# )
-
 
 sra_index = df.columns.get_loc("run_accession")
 srx_index = df.columns.get_loc("experiment_accession")

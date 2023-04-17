@@ -16,6 +16,30 @@ Types of changes
 
 # Latch SDK Changelog
 
+## 2.19.0
+
+### Added
+
+- Functions for creating/deleting Projects and Tables, and creating Table columns in the Registry API
+
+## 2.18.3 - 2023-04-12
+
+### Fixed
+
+- Registry table updates should work with columns that have spaces in names
+
+## 2.18.2 - 2023-04-11
+
+### Changed
+
+- Improved Registry API `__str__` and `__repr__`
+
+## 2.18.1 - 2023-04-08
+
+### Fixed
+
+- Registry API should work in an running asyncio event loop
+
 ## 2.18.0 - 2023-04-08
 
 ### Added
