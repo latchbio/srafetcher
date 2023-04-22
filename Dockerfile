@@ -1,38 +1,29 @@
-FROM 812206152185.dkr.ecr.us-west-2.amazonaws.com/latch-base:6839-main
+FROM 812206152185.dkr.ecr.us-west-2.amazonaws.com/latch-base:9c8f-main
 
 WORKDIR /root
-RUN apt-get install -y curl unzip wget
 
-# conda envs
-ENV CONDA_PREFIX="/root/miniconda3/envs/sra"
-ENV CONDA_DEFAULT_ENV="sra"
-ENV PATH="/root/miniconda3/envs/sra/bin:/root/miniconda3/bin:${PATH}"
+RUN apt-get update && apt-get install curl pigz -y
 
-# miniconda3 instllation
-RUN apt-get update && apt install --upgrade \
-    && apt install aria2 cmake wget curl libfontconfig1-dev git -y\
-    && curl -O https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
-    && mkdir /root/.conda \
-    && bash Miniconda3-latest-Linux-x86_64.sh -b \
-    && rm -f Miniconda3-latest-Linux-x86_64.sh \
-    && conda init bash
+# install sratoolkit
 
-# activate for following run commands
-RUN conda create --name sra
-SHELL ["conda", "run", "-n", "sra", "/bin/bash", "-c"]
+# explicitly setting version bc the "current" distribution is out of date
+ENV SRA_TOOLKIT_VERSION="3.0.2"
 
-RUN conda install -c "bioconda/label/main" sra-tools
+RUN curl -O https://ftp-trace.ncbi.nlm.nih.gov/sra/sdk/$SRA_TOOLKIT_VERSION/sratoolkit.$SRA_TOOLKIT_VERSION-ubuntu64.tar.gz &&\
+    tar -xvzf sratoolkit.$SRA_TOOLKIT_VERSION-ubuntu64.tar.gz
 
-RUN apt install pigz
+ENV PATH=/root/sratoolkit.$SRA_TOOLKIT_VERSION-ubuntu64/bin:$PATH
+
 
 # STOP HERE:
 # The following lines are needed to ensure your build environement works
 # correctly with latch.
-RUN python3 -m pip install --upgrade latch
-RUN pip install requests
-COPY lytekit /root/lytekit
-RUN pip install -e /root/lytekit
+COPY latch /root/latch
+RUN pip install /root/latch
+RUN pip install --upgrade pysradb
+
 COPY wf /root/wf
+
 ARG tag
 ENV FLYTE_INTERNAL_IMAGE $tag
 CMD ["sleep", "100000"]

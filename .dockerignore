@@ -1,0 +1,5 @@
+.latch
+.logs
+.venv
+.latch_report.tar.gz
+**/__pycache__
