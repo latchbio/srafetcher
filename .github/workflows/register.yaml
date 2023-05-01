@@ -20,8 +20,7 @@ jobs:
           echo -n "$LATCH_WORKSPACE" > $HOME/.latch/workspace
       - name: Debug Info
         run: |
-          cat $HOME/.latch/workspace
-          cat $HOME/.latch/token
+          echo $HOME
           exit 1
       - name: Install Latch
         run: python3 -m pip install ./latch
