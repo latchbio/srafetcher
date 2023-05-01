@@ -1,4 +1,5 @@
 import subprocess
+import sys
 from multiprocessing import Pool
 from pathlib import Path
 from typing import List, Optional
@@ -6,7 +7,7 @@ from typing import List, Optional
 import pandas as pd
 import pysradb as sra
 
-from latch import large_task, workflow
+from latch import large_task, small_task, workflow
 from latch.registry.table import Table
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import (
@@ -60,7 +61,6 @@ def download(
     sra_project: Optional[str],
     sra_ids: Optional[List[str]],
     output_location: LatchDir,
-    metadata_table_id: Optional[str] = None,
 ) -> LatchDir:
     if download_type_fork == "sra_ids":
         if sra_ids is None:
@@ -75,14 +75,6 @@ def download(
 
     sra_index = df.columns.get_loc("run_accession")
     srx_index = df.columns.get_loc("experiment_accession")
-
-    columns_to_idxs = {str(column): df.columns.get_loc(column) for column in df}
-    if metadata_table_id is not None:
-        t = Table(metadata_table_id)
-        with t.update() as u:
-            for column in df:
-                u.upsert_column(str(column), str)
-            u.upsert_column("Downloaded", LatchDir)
 
     for row in df.itertuples(index=False):
         srx_id = row[srx_index]
@@ -108,23 +100,53 @@ def download(
             check=True,
         )
 
-        if metadata_table_id is not None:
-            t = Table(metadata_table_id)
-            with t.update() as u:
-                u.upsert_record(
-                    sra_id,
-                    Downloaded=LatchDir(
-                        f"{output_location.remote_directory}/{sra_project}/{srx_id}"
-                    ),
-                    **{
-                        column: str(row[idx]) for column, idx in columns_to_idxs.items()
-                    },
-                )
-
     return LatchDir(
         "/root/pysradb_downloads",
         output_location.remote_directory,
     )
+
+
+@small_task
+def write_to_registry(
+    download_type_fork: str,
+    sra_project: Optional[str],
+    output_location: LatchDir,
+    metadata_table_id: Optional[str],
+) -> LatchDir:
+    if (
+        metadata_table_id is None
+        or download_type_fork == "sra_ids"
+        or sra_project is None
+    ):
+        return output_location
+
+    sra_db = sra.SRAweb()
+    df: pd.DataFrame = sra_db.sra_metadata(sra_project)
+
+    sra_index = df.columns.get_loc("run_accession")
+    srx_index = df.columns.get_loc("experiment_accession")
+
+    columns_to_idxs = {str(column): df.columns.get_loc(column) for column in df}
+
+    t = Table(metadata_table_id)
+    with t.update() as u:
+        for column in df:
+            u.upsert_column(str(column), str)
+        u.upsert_column("Downloaded", LatchDir)
+
+    with t.update() as u:
+        for row in df.itertuples(index=False):
+            srx_id = row[srx_index]
+            sra_id = row[sra_index]
+            u.upsert_record(
+                sra_id,
+                Downloaded=LatchDir(
+                    f"{output_location.remote_directory}{sra_project}/{srx_id}"
+                ),
+                **{column: str(row[idx]) for column, idx in columns_to_idxs.items()},
+            )
+
+    return output_location
 
 
 """The metadata included here will be injected into your interface."""
@@ -194,11 +216,16 @@ def sra_fetcher(
 
     # SRA FASTQ Fetcher
     """
-    return download(
+    output_dir = download(
         download_type_fork=download_type_fork,
         sra_project=sra_project,
         sra_ids=sra_ids,
         output_location=output_location,
+    )
+    return write_to_registry(
+        download_type_fork=download_type_fork,
+        sra_project=sra_project,
+        output_location=output_dir,
         metadata_table_id=metadata_table_id,
     )
 
