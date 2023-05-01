@@ -12,8 +12,8 @@ jobs:
           python-version: "3.10"
       - name: Save Credentials
         env:
-          TOKEN: ${{ secrets.TOKEN }}
-          WORKSPACE: ${{ secrets.WORKSPACE }}
+          TOKEN: ${{ vars.TOKEN }}
+          WORKSPACE: ${{ vars.WORKSPACE }}
         run: |
           mkdir -p "$HOME/.latch"
           echo -n "$TOKEN" > "$HOME/.latch/token"
