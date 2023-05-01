@@ -13,11 +13,11 @@ jobs:
       - name: Save Credentials
         env:
           TOKEN: ${{ secrets.TOKEN }}
-          WORKSPACE: ${{ secrets.WORKSPACE }}
+          LATCH_WORKSPACE: ${{ secrets.WORKSPACE }}
         run: |
           mkdir -p ~/.latch
           echo -n "$TOKEN" > ~/.latch/token
-          echo -n "$WORKSPACE" > ~/.latch/workspace
+          echo -n "$LATCH_WORKSPACE" > ~/.latch/workspace
       - name: Debug Info
         run: |
           cat ~/.latch/workspace
