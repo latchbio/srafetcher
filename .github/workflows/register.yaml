@@ -15,13 +15,13 @@ jobs:
           TOKEN: ${{ secrets.TOKEN }}
           LATCH_WORKSPACE: ${{ secrets.WORKSPACE }}
         run: |
-          mkdir -p ~/.latch
-          echo -n "$TOKEN" > ~/.latch/token
-          echo -n "$LATCH_WORKSPACE" > ~/.latch/workspace
+          mkdir -p $HOME/.latch
+          echo -n "$TOKEN" > $HOME/.latch/token
+          echo -n "$LATCH_WORKSPACE" > $HOME/.latch/workspace
       - name: Debug Info
         run: |
-          cat ~/.latch/workspace
-          cat ~/.latch/token
+          cat $HOME/.latch/workspace
+          cat $HOME/.latch/token
           exit 1
       - name: Install Latch
         run: python3 -m pip install ./latch
