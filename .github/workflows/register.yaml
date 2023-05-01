@@ -20,7 +20,7 @@ jobs:
           mkdir -p ~/.latch
           echo -n "$TOKEN" > ~/.latch/token
           echo -n "$WORKSPACE" > ~/.latch/workspace
-      - name: Set up SSH
-        run: eval `ssh-agent -s`
       - name: Register Workflow
-        run: latch register -r .
+        run: |
+          eval `ssh-agent -s`
+          latch register -r .
