@@ -1,13 +1,14 @@
+import functools
 import subprocess
 import sys
-from multiprocessing import Pool
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
 import pandas as pd
 import pysradb as sra
 
-from latch import large_task, small_task, workflow
+from latch import large_task, map_task, small_task, workflow
 from latch.registry.table import Table
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import (
@@ -21,54 +22,26 @@ from latch.types import (
 )
 
 
-def generate_fastqs_for_sra(sra_id: str) -> None:
-    print("Currently downloading: " + sra_id)
-    prefetch = f"prefetch {sra_id} --max-size 10000GB"
-    print("The command used is: " + prefetch)
-    subprocess.run(prefetch, shell=True, check=True)
-
-    print("Generating fastq for: " + sra_id)
-    fastq_dump = (
-        f"fasterq-dump {sra_id} --outdir /root/fastq/{sra_id} --split-files"
-        " --include-technical --verbose --mem 10000MB --threads 8"
-    )
-    print("The command is: " + fastq_dump)
-    subprocess.run(fastq_dump, shell=True, check=True)
+@dataclass
+class DownloadData:
+    sra_id: str
+    output_location: LatchDir
 
 
-def gzip_fastq(file: Path) -> None:
-    pigz = f"pigz {str(file)}"
-    subprocess.run(pigz, shell=True, check=True)
-
-
-def download_sras(sra_list: List[str], output_location: LatchDir) -> LatchDir:
-    with Pool() as p:
-        p.map(generate_fastqs_for_sra, sra_list)
-
-    print(
-        "Finished downloading and converting all SRA files\nGunzipping result files..."
-    )
-    output_files = Path("/root/fastq").glob("**/*.fastq")
-    with Pool() as p:
-        p.map(gzip_fastq, output_files)
-
-    return LatchDir("/root/fastq", output_location.remote_path)
-
-
-@large_task
-def download(
+@small_task
+def generate_downloads(
     download_type_fork: str,
     sra_project: Optional[str],
     sra_ids: Optional[List[str]],
     output_location: LatchDir,
-) -> LatchDir:
-    if download_type_fork == "sra_ids":
-        if sra_ids is None:
-            raise ValueError("no SRA runs to download")
-        return download_sras(sra_ids, output_location)
+) -> List[DownloadData]:
+    if download_type_fork == "sra_ids" and sra_ids is not None:
+        return [DownloadData(sra_id, output_location) for sra_id in sra_ids]
 
     if sra_project is None:
-        raise ValueError("no SRA project to download")
+        raise ValueError("Must specify either a set of SRA IDs or an SRP ID.")
+
+    outputs: List[DownloadData] = []
 
     sra_db = sra.SRAweb()
     df: pd.DataFrame = sra_db.sra_metadata(sra_project)
@@ -80,30 +53,37 @@ def download(
         srx_id = row[srx_index]
         sra_id = row[sra_index]
 
-        output_dir = Path(f"/root/pysradb_downloads/{sra_project}/{srx_id}")
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        subprocess.run(
-            [
-                "fasterq-dump",
-                f"{sra_id}",
-                "--outdir",
-                str(output_dir),
-                "--split-files",
-                "--include-technical",
-                "--verbose",
-                "--mem",
-                "10000MB",
-                "--threads",
-                "8",
-            ],
-            check=True,
+        outputs.append(
+            DownloadData(
+                sra_id,
+                LatchDir(f"{output_location.remote_directory}{sra_project}/{srx_id}"),
+            )
         )
 
-    return LatchDir(
-        "/root/pysradb_downloads",
-        output_location.remote_directory,
+    return outputs
+
+
+@large_task
+def download(data: DownloadData) -> LatchDir:
+    output_dir = Path("downloaded")
+    output_dir.mkdir(exist_ok=True)
+    subprocess.run(
+        [
+            "fasterq-dump",
+            f"{data.sra_id}",
+            "--outdir",
+            str(output_dir),
+            "--split-files",
+            "--include-technical",
+            "--verbose",
+            "--mem",
+            "10000MB",
+            "--threads",
+            "8",
+        ],
+        check=True,
     )
+    return LatchDir(output_dir, data.output_location.remote_directory)
 
 
 @small_task
@@ -112,6 +92,7 @@ def write_to_registry(
     sra_project: Optional[str],
     output_location: LatchDir,
     metadata_table_id: Optional[str],
+    barrier: List[LatchDir],  # hack to make sure this runs after the map task is done
 ) -> LatchDir:
     if (
         metadata_table_id is None
@@ -129,15 +110,17 @@ def write_to_registry(
     columns_to_idxs = {str(column): df.columns.get_loc(column) for column in df}
 
     t = Table(metadata_table_id)
+
     with t.update() as u:
         for column in df:
             u.upsert_column(str(column), str)
         u.upsert_column("Downloaded", LatchDir)
 
-    with t.update() as u:
-        for row in df.itertuples(index=False):
+    for row in df.itertuples(index=False):
+        with t.update() as u:
             srx_id = row[srx_index]
             sra_id = row[sra_index]
+
             u.upsert_record(
                 sra_id,
                 Downloaded=LatchDir(
@@ -216,17 +199,21 @@ def sra_fetcher(
 
     # SRA FASTQ Fetcher
     """
-    output_dir = download(
+    data = generate_downloads(
         download_type_fork=download_type_fork,
         sra_project=sra_project,
         sra_ids=sra_ids,
         output_location=output_location,
     )
+
+    barrier = map_task(download)(data=data)
+
     return write_to_registry(
         download_type_fork=download_type_fork,
         sra_project=sra_project,
-        output_location=output_dir,
+        output_location=output_location,
         metadata_table_id=metadata_table_id,
+        barrier=barrier,
     )
 
 

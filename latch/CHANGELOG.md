@@ -16,7 +16,25 @@ Types of changes
 
 # Latch SDK Changelog
 
-## 2.19.0
+## 2.19.3 - 2023-04-26
+
+### Fixed
+
+- Tasks stuck initializing on nodes that ran multiple tasks before
+
+## 2.19.2 - 2023-04-24
+
+### Dependencies
+
+* Upgrades lytekit to `0.14.10`
+
+## 2.19.1 - 2023-04-21
+
+### Changed
+
+- `latch cp` now has a progress bar for downloads (previously they only showed for uploads)
+
+## 2.19.0 - 2023-04-14
 
 ### Added
 
