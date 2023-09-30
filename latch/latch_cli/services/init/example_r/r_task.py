@@ -1,7 +1,8 @@
 import subprocess
 
-from latch import small_task
-from latch.types import LatchFile, LatchOutputDir
+from latch.resources.tasks import small_task
+from latch.types.directory import LatchOutputDir
+from latch.types.file import LatchFile
 
 
 # change the name of this function to something more descriptive
@@ -10,7 +11,7 @@ def r_task(input_file: LatchFile, output_directory: LatchOutputDir) -> LatchFile
     # You can run R files as a subprocess:
 
     subprocess.run(
-        "".join(
+        " ".join(
             [
                 "Rscript",
                 "path/to/your_script.R",

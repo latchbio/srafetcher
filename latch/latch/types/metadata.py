@@ -1,9 +1,8 @@
-import json
 import re
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from textwrap import indent
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import yaml
 
@@ -204,25 +203,19 @@ class Spoiler(FlowBase):
 
 @dataclass(frozen=True, init=False)
 class ForkBranch:
-    """Definition of a :class:`~latch.types.metadata.Fork` branch
-
-    Args:
-        display_name:
-            String displayed in the fork's multibutton
-
-        flow:
-            Child flow displayed in the fork card when the branch is active
-    """
+    """Definition of a :class:`~latch.types.metadata.Fork` branch"""
 
     display_name: str
+    """String displayed in the fork's multibutton"""
     flow: List[FlowBase]
-    _tmp_unwrap_optionals: Optional[List[str]]
+    """Child flow displayed in the fork card when the branch is active"""
+    _tmp_unwrap_optionals: List[str]
 
     def __init__(
         self,
         display_name: str,
         *flow: FlowBase,
-        _tmp_unwrap_optionals: Optional[List[str]] = None,
+        _tmp_unwrap_optionals: List[str] = [],
     ):
         object.__setattr__(self, "display_name", display_name)
         object.__setattr__(self, "flow", list(flow))

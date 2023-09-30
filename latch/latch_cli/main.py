@@ -9,12 +9,16 @@ import click
 from packaging.version import parse as parse_version
 
 import latch_cli.click_utils
+from latch_cli.click_utils import EnumChoice
 from latch_cli.exceptions.handler import CrashHandler
+from latch_cli.services.cp.config import Progress
 from latch_cli.services.init.init import template_flag_to_option
 from latch_cli.utils import get_latest_package_version, get_local_package_version
 from latch_cli.workflow_config import BaseImageOptions
 
 latch_cli.click_utils.patch()
+
+from latch_cli.constants import latch_constants, units
 
 crash_handler = CrashHandler()
 
@@ -35,12 +39,10 @@ def main():
     latest_ver = parse_version(get_latest_package_version())
     if local_ver < latest_ver:
         click.secho(
-            textwrap.dedent(
-                f"""
+            textwrap.dedent(f"""
                 WARN: Your local version of latch ({local_ver}) is out of date. This may result in unexpected behavior.
                 Please upgrade to the latest version ({latest_ver}) using `python3 -m pip install --upgrade latch`.
-                """
-            ).strip("\n"),
+                """).strip("\n"),
             fg="yellow",
         )
 
@@ -85,14 +87,21 @@ def dockerfile(pkg_root: str):
     ),
 )
 @click.option(
-    "-r",
-    "--remote",
+    "--remote/--no-remote",
     is_flag=True,
-    default=False,
+    default=True,
     type=bool,
     help="Use a remote server to build workflow.",
 )
-def register(pkg_root: str, disable_auto_version: bool, remote: bool):
+@click.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    default=False,
+    type=bool,
+    help="Skip the confirmation dialog.",
+)
+def register(pkg_root: str, disable_auto_version: bool, remote: bool, yes: bool):
     """Register local workflow code to Latch.
 
     Visit docs.latch.bio to learn more.
@@ -103,9 +112,11 @@ def register(pkg_root: str, disable_auto_version: bool, remote: bool):
 
     from latch_cli.services.register import register
 
-    register(pkg_root, disable_auto_version=disable_auto_version, remote=remote)
-    click.secho(
-        "Successfully registered workflow. View @ console.latch.bio.", fg="green"
+    register(
+        pkg_root,
+        disable_auto_version=disable_auto_version,
+        remote=remote,
+        skip_confirmation=yes,
     )
 
 
@@ -196,24 +207,59 @@ def init(
 
 
 @main.command("cp")
-@click.argument("source_file", nargs=1)
-@click.argument("destination_file", nargs=1)
-def cp(source_file: str, destination_file: str):
+@click.argument("src")
+@click.argument("dest")
+@click.option(
+    "--progress",
+    help="Type of progress information to show while copying",
+    type=EnumChoice(Progress, case_sensitive=False),
+    default="tasks",
+    show_default=True,
+)
+@click.option(
+    "--verbose",
+    "-v",
+    help="Print file names as they are copied",
+    is_flag=True,
+    default=False,
+    show_default=True,
+)
+def cp(
+    src: str,
+    dest: str,
+    progress: Progress,
+    verbose: bool,
+):
     """Copy local files to LatchData and vice versa."""
 
-    crash_handler.message = f"Unable to copy {source_file} to {destination_file}"
+    crash_handler.message = f"Unable to copy {src} to {dest}"
     crash_handler.pkg_root = str(Path.cwd())
 
-    from latch_cli.services.cp import cp
+    from latch_cli.services.cp.main import cp
 
-    cp(source_file, destination_file)
-    click.secho(
-        f"\nSuccessfully copied {source_file} to {destination_file}.", fg="green"
+    cp(
+        src,
+        dest,
+        progress=progress,
+        verbose=verbose,
     )
 
 
+@main.command("mv")
+@click.argument("src")
+@click.argument("dest")
+def mv(src: str, dest: str):
+    """Move remote files in LatchData."""
+
+    crash_handler.message = f"Unable to move {src} to {dest}"
+    crash_handler.pkg_root = str(Path.cwd())
+
+    from latch_cli.services.move import move
+
+    move(src, dest)
+
+
 @main.command("ls")
-# Allows the user to provide unlimited arguments (including zero)
 @click.option(
     "--group-directories-first",
     "--gdf",
@@ -252,21 +298,27 @@ def ls(group_directories_first: bool, remote_directories: Union[None, List[str]]
         formatted = []
         for row in output:
             vals = {
-                "contentSize": click.style(
-                    with_si_suffix(int(row["contentSize"]), suffix="", styled=True),
-                    fg="bright_green",
-                )
-                if row["contentSize"] != "-" and row["type"] != "dir"
-                else click.style("-", dim=True),
-                "modifyTime": click.style(
-                    datetime.fromisoformat(row["modifyTime"]).strftime("%d %b %H:%M"),
-                    fg="blue",
-                )
-                if row["modifyTime"] != "-" and row["type"] != "dir"
-                else click.style("-", dim=True),
-                "name": row["name"]
-                if len(row["name"]) <= 50
-                else f"{row['name'][:47]}...",
+                "contentSize": (
+                    click.style(
+                        with_si_suffix(int(row["contentSize"]), suffix="", styled=True),
+                        fg="bright_green",
+                    )
+                    if row["contentSize"] != "-" and row["type"] != "dir"
+                    else click.style("-", dim=True)
+                ),
+                "modifyTime": (
+                    click.style(
+                        datetime.fromisoformat(row["modifyTime"]).strftime(
+                            "%d %b %H:%M"
+                        ),
+                        fg="blue",
+                    )
+                    if row["modifyTime"] != "-" and row["type"] != "dir"
+                    else click.style("-", dim=True)
+                ),
+                "name": (
+                    row["name"] if len(row["name"]) <= 50 else f"{row['name'][:47]}..."
+                ),
             }
 
             if row["type"] == "dir":
@@ -355,8 +407,10 @@ def get_params(wf_name: Union[str, None], version: Union[str, None] = None):
     if version is None:
         version = "latest"
     click.secho(
-        f"Successfully generated python param map named {wf_name}.params.py with"
-        f" version {version}\n Run `latch launch {wf_name}.params.py` to launch it.",
+        (
+            f"Successfully generated python param map named {wf_name}.params.py with"
+            f" version {version}\n Run `latch launch {wf_name}.params.py` to launch it."
+        ),
         fg="green",
     )
 

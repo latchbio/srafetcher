@@ -4,8 +4,6 @@ WORKDIR /root
 
 RUN apt-get update && apt-get install curl pigz -y
 
-# install sratoolkit
-
 # explicitly setting version bc the "current" distribution is out of date
 ENV SRA_TOOLKIT_VERSION="3.0.2"
 
@@ -14,10 +12,6 @@ RUN curl -O https://ftp-trace.ncbi.nlm.nih.gov/sra/sdk/$SRA_TOOLKIT_VERSION/srat
 
 ENV PATH=/root/sratoolkit.$SRA_TOOLKIT_VERSION-ubuntu64/bin:$PATH
 
-
-# STOP HERE:
-# The following lines are needed to ensure your build environement works
-# correctly with latch.
 COPY latch /root/latch
 RUN pip install /root/latch
 RUN pip install --upgrade pysradb
@@ -26,4 +20,3 @@ COPY wf /root/wf
 
 ARG tag
 ENV FLYTE_INTERNAL_IMAGE $tag
-CMD ["sleep", "100000"]

@@ -116,10 +116,8 @@ def infer_commands(pkg_root: Path) -> List[DockerCmdBlock]:
                             mkdir /root/.conda && \
                             # docs for -b and -p flags: https://docs.anaconda.com/anaconda/install/silent-mode/#linux-macos
                             bash Miniconda3-latest-Linux-x86_64.sh -b -p /opt/conda && \
-                            rm -f Miniconda3-latest-Linux-x86_64.sh && \
-                            conda init bash
-                        """
-                    ).strip(),
+                            rm -f Miniconda3-latest-Linux-x86_64.sh
+                        """).strip(),
                 ],
                 order=DockerCmdBlockOrder.precopy,
             ),
@@ -128,8 +126,7 @@ def infer_commands(pkg_root: Path) -> List[DockerCmdBlock]:
                 commands=[
                     "copy environment.yaml /opt/latch/environment.yaml",
                     f"run conda env create --file /opt/latch/environment.yaml --name {env_name}",
-                    f'shell ["conda", "run", "--name", "{env_name}", "/bin/bash", "-c"]',
-                    "run pip install --upgrade latch",
+                    f"env PATH=$CONDA_DIR/envs/{env_name}/bin:$PATH"
                 ],
                 order=DockerCmdBlockOrder.precopy,
             ),

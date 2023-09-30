@@ -1,17 +1,7 @@
 import json
 from datetime import date, datetime
 from enum import Enum
-from typing import (
-    Dict,
-    List,
-    Optional,
-    Type,
-    TypeVar,
-    Union,
-    cast,
-    get_args,
-    get_origin,
-)
+from typing import Dict, List, Optional, Type, TypeVar, Union, cast
 
 import gql
 from dateutil.parser import parse
@@ -26,7 +16,9 @@ from latch.registry.upstream_types.types import (
     RegistryType,
 )
 from latch.registry.upstream_types.values import DBValue
-from latch.types import LatchDir, LatchFile
+from latch.types.directory import LatchDir
+from latch.types.file import LatchFile
+from latch_cli.config.user import user_config
 
 # todo(maximsmol): hopefully, PyLance eventually narrows `TypedDict`` unions using `in`
 # then we can get rid of the casts
@@ -335,22 +327,47 @@ def to_registry_literal(
                 "cannot convert non-blob python literal to registry blob"
             )
 
-        node_id = execute(
-            gql.gql(
-                """
-            query nodeIdQ($argPath: String!) {
-                ldataResolvePath(
-                    path: $argPath
-                ) {
-                    nodeId
-                }
-            }
-            """
-            ),
-            {"argPath": python_literal.remote_path},
-        )["ldataResolvePath"]["nodeId"]
+        ws_id = user_config.workspace_id
+        if ws_id == "":
+            ws_id = None
 
-        value = {"ldataNodeId": node_id}
+        if ws_id is None:
+            data = execute(
+                gql.gql("""
+                query nodeIdQ($argPath: String!) {
+                    ldataResolvePath(
+                        path: $argPath
+                    ) {
+                        nodeId
+                        path
+                    }
+                }
+                """),
+                {"argPath": python_literal.remote_path},
+            )["ldataResolvePath"]
+        else:
+            data = execute(
+                gql.gql("""
+                query nodeIdQ($argPath: String!, $wsId: BigInt!) {
+                    ldataResolvePathExt(
+                        path: $argPath,
+                        accId: $wsId
+                    ) {
+                        nodeId
+                        path
+                    }
+                }
+                """),
+                {"argPath": python_literal.remote_path, "wsId": ws_id},
+            )["ldataResolvePathExt"]
+
+        if data["path"] is not None and data["path"] != "":
+            # todo(maximsmol): store an invalid value instead?
+            raise RegistryTransformerException(
+                f"could not resolve path: {python_literal.remote_path}"
+            )
+
+        value = {"ldataNodeId": data["nodeId"]}
     else:
         raise RegistryTransformerException(f"malformed registry type: {registry_type}")
 

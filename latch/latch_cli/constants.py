@@ -2,22 +2,38 @@
 
 import re
 from dataclasses import dataclass
+from enum import Enum
+
+
+class Units(int, Enum):
+    KiB = 2**10
+    kB = 10**3
+
+    MiB = 2**20
+    MB = 10**6
+
+    GiB = 2**30
+    GB = 10**9
+
+    TiB = 2**40
+    TB = 10**12
+
+
+units = Units
 
 
 @dataclass(frozen=True)
 class LatchConstants:
     base_image: str = (
-        "812206152185.dkr.ecr.us-west-2.amazonaws.com/latch-base:9c8f-main"
+        "812206152185.dkr.ecr.us-west-2.amazonaws.com/latch-base:5303-main"
     )
 
-    mib: int = 2**20
+    file_max_size: int = 4 * units.MiB
+    file_chunk_size: int = 256 * units.MiB
 
-    file_max_size: int = 4 * mib
-
-    file_chunk_size: int = 256 * mib
-
-    # https://repost.aws/knowledge-center/s3-upload-large-files
+    # https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html
     maximum_upload_parts = 10000
+    maximum_upload_size = 5 * units.TiB
 
     pkg_name: str = "latch"
     pkg_ssh_key: str = ".latch/ssh_key"

@@ -8,9 +8,12 @@ from typing import List, Optional
 import pandas as pd
 import pysradb as sra
 
-from latch import large_task, map_task, small_task, workflow
+from latch.registry.project import Project
 from latch.registry.table import Table
 from latch.resources.launch_plan import LaunchPlan
+from latch.resources.map_tasks import map_task
+from latch.resources.tasks import large_task, small_task
+from latch.resources.workflow import workflow
 from latch.types import (
     Fork,
     ForkBranch,
@@ -89,16 +92,23 @@ def download(data: DownloadData) -> LatchDir:
 @small_task
 def write_to_registry(
     download_type_fork: str,
+    table_type_fork: str,
+    new_table_project_id: Optional[str],
+    new_table_name: Optional[str],
     sra_project: Optional[str],
     output_location: LatchDir,
-    metadata_table_id: Optional[str],
+    existing_table_id: Optional[str],
     barrier: List[LatchDir],  # hack to make sure this runs after the map task is done
 ) -> LatchDir:
+    if download_type_fork == "sra_ids" or sra_project is None:
+        return output_location
+    if table_type_fork == "no_table":
+        return output_location
+    if existing_table_id is None and table_type_fork == "use_existing":
+        return output_location
     if (
-        metadata_table_id is None
-        or download_type_fork == "sra_ids"
-        or sra_project is None
-    ):
+        new_table_project_id is None or new_table_name is None
+    ) and table_type_fork == "create_new":
         return output_location
 
     sra_db = sra.SRAweb()
@@ -109,7 +119,21 @@ def write_to_registry(
 
     columns_to_idxs = {str(column): df.columns.get_loc(column) for column in df}
 
-    t = Table(metadata_table_id)
+    t = None
+    if table_type_fork == "use_existing":
+        t = Table(existing_table_id)
+    elif table_type_fork == "create_new":
+        p = Project(new_table_project_id)
+        with p.update() as u:
+            u.upsert_table(new_table_name)
+        tables = p.list_tables()
+        for x in tables:
+            if x.get_display_name() == new_table_name:
+                t = x
+                break
+
+    if t is None:
+        return output_location
 
     with t.update() as u:
         for column in df:
@@ -144,13 +168,25 @@ metadata = LatchMetadata(
             display_name="Download Type",
             description="Either download a whole SRA Project or a set of Runs",
         ),
+        "table_type_fork": LatchParameter(
+            display_name="Registry Output Type",
+            description="Either write to an existing table or create a new one",
+        ),
+        "new_table_project_id": LatchParameter(
+            display_name="Registry Project ID",
+            description="ID of the project to create the new table in.",
+        ),
+        "new_table_name": LatchParameter(
+            display_name="Registry Table Name",
+            description="Name of the new table.",
+        ),
         "sra_ids": LatchParameter(
-            display_name="Run IDs",
+            display_name="SRA Run IDs",
             description="A list of SRA Run IDs to download",
             batch_table_column=True,
         ),
         "sra_project": LatchParameter(
-            display_name="Project ID",
+            display_name="SRA Project ID",
             description="An SRA Project ID to download",
             batch_table_column=True,
         ),
@@ -160,7 +196,7 @@ metadata = LatchMetadata(
             batch_table_column=True,
             output=True,
         ),
-        "metadata_table_id": LatchParameter(
+        "existing_table_id": LatchParameter(
             display_name="Output Metadata Table",
             description="Optional Table to store Project Metadata",
             batch_table_column=True,
@@ -178,7 +214,27 @@ metadata = LatchMetadata(
             ),
             sra_project=ForkBranch(
                 "Specify Project ID",
-                Params("sra_project", "metadata_table_id"),
+                Params("sra_project"),
+                Fork(
+                    fork="table_type_fork",
+                    display_name="",
+                    use_existing=ForkBranch(
+                        "Use Existing Table",
+                        Params("existing_table_id"),
+                        _tmp_unwrap_optionals=["existing_table_id"],
+                    ),
+                    create_new=ForkBranch(
+                        "Create New Table",
+                        Params("new_table_project_id", "new_table_name"),
+                        _tmp_unwrap_optionals=[
+                            "new_table_project_id",
+                            "new_table_name",
+                        ],
+                    ),
+                    no_table=ForkBranch(
+                        "No Registry Output",
+                    ),
+                ),
                 _tmp_unwrap_optionals=["sra_project"],
             ),
         ),
@@ -190,10 +246,13 @@ metadata = LatchMetadata(
 @workflow(metadata)
 def sra_fetcher(
     download_type_fork: str,
+    table_type_fork: str,
+    new_table_project_id: Optional[str],
+    new_table_name: Optional[str],
     sra_project: Optional[str],
     sra_ids: Optional[List[str]],
     output_location: LatchDir = LatchDir("latch:///SRA FASTQs/"),
-    metadata_table_id: Optional[str] = None,
+    existing_table_id: Optional[str] = None,
 ) -> LatchDir:
     """Download .sra file from accession number, unpack it into FASTQs, gunzip them, and deposit them into Latch Data.
 
@@ -210,9 +269,12 @@ def sra_fetcher(
 
     return write_to_registry(
         download_type_fork=download_type_fork,
+        table_type_fork=table_type_fork,
+        new_table_project_id=new_table_project_id,
+        new_table_name=new_table_name,
         sra_project=sra_project,
         output_location=output_location,
-        metadata_table_id=metadata_table_id,
+        existing_table_id=existing_table_id,
         barrier=barrier,
     )
 
