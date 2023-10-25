@@ -1,74 +1,127 @@
 import subprocess
-from multiprocessing import Pool
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
 import pandas as pd
 import pysradb as sra
-
-from latch import large_task, workflow
+from latch.registry.project import Project
 from latch.registry.table import Table
 from latch.resources.launch_plan import LaunchPlan
-from latch.types import (
-    Fork,
-    ForkBranch,
-    LatchAuthor,
-    LatchDir,
-    LatchMetadata,
-    LatchParameter,
-    Params,
-)
+from latch.resources.map_tasks import map_task
+from latch.resources.tasks import large_task, small_task
+from latch.resources.workflow import workflow
+from latch.types import Fork
+from latch.types import ForkBranch as OGForkBranch
+from latch.types import LatchAuthor, LatchDir, LatchMetadata, LatchParameter, Params
+from latch.types.metadata import FlowBase
 
 
-def generate_fastqs_for_sra(sra_id: str) -> None:
-    print("Currently downloading: " + sra_id)
-    prefetch = f"prefetch {sra_id} --max-size 10000GB"
-    print("The command used is: " + prefetch)
-    subprocess.run(prefetch, shell=True, check=True)
-
-    print("Generating fastq for: " + sra_id)
-    fastq_dump = (
-        f"fasterq-dump {sra_id} --outdir /root/fastq/{sra_id} --split-files"
-        " --include-technical --verbose --mem 10000MB --threads 8"
-    )
-    print("The command is: " + fastq_dump)
-    subprocess.run(fastq_dump, shell=True, check=True)
-
-
-def gzip_fastq(file: Path) -> None:
-    pigz = f"pigz {str(file)}"
-    subprocess.run(pigz, shell=True, check=True)
+@dataclass(frozen=True, init=False)
+class ForkBranch(OGForkBranch):
+    def __init__(
+        self,
+        display_name: str,
+        *flow: FlowBase,
+        _tmp_unwrap_optionals: Optional[List[str]] = None,
+    ):
+        object.__setattr__(self, "display_name", display_name)
+        object.__setattr__(self, "flow", list(flow))
+        if _tmp_unwrap_optionals is not None:
+            object.__setattr__(self, "_tmp_unwrap_optionals", _tmp_unwrap_optionals)
 
 
-def download_sras(sra_list: List[str], output_location: LatchDir) -> LatchDir:
-    with Pool() as p:
-        p.map(generate_fastqs_for_sra, sra_list)
-
-    print(
-        "Finished downloading and converting all SRA files\nGunzipping result files..."
-    )
-    output_files = Path("/root/fastq").glob("**/*.fastq")
-    with Pool() as p:
-        p.map(gzip_fastq, output_files)
-
-    return LatchDir("/root/fastq", output_location.remote_path)
+@dataclass
+class DownloadData:
+    sra_id: str
+    output_location: LatchDir
 
 
-@large_task
-def download(
+@small_task
+def generate_downloads(
     download_type_fork: str,
     sra_project: Optional[str],
     sra_ids: Optional[List[str]],
     output_location: LatchDir,
-    metadata_table_id: Optional[str] = None,
-) -> LatchDir:
-    if download_type_fork == "sra_ids":
-        if sra_ids is None:
-            raise ValueError("no SRA runs to download")
-        return download_sras(sra_ids, output_location)
+) -> List[DownloadData]:
+    if download_type_fork == "sra_ids" and sra_ids is not None:
+        return [DownloadData(sra_id, output_location) for sra_id in sra_ids]
 
     if sra_project is None:
-        raise ValueError("no SRA project to download")
+        raise ValueError("Must specify either a set of SRA IDs or an SRP ID.")
+
+    outputs: List[DownloadData] = []
+
+    sra_db = sra.SRAweb()
+    df: pd.DataFrame = sra_db.sra_metadata(sra_project)
+
+    sra_index = df.columns.get_loc("run_accession")
+    srx_index = df.columns.get_loc("experiment_accession")
+
+    for row in df.itertuples(index=False):
+        srx_id = row[srx_index]
+        sra_id = row[sra_index]
+
+        outputs.append(
+            DownloadData(
+                sra_id,
+                LatchDir(f"{output_location.remote_directory}{sra_project}/{srx_id}"),
+            )
+        )
+
+    return outputs
+
+
+@large_task
+def download(data: DownloadData) -> Optional[LatchDir]:
+    output_dir = Path("downloaded")
+    output_dir.mkdir(exist_ok=True)
+    try:
+        subprocess.run(
+            [
+                "fasterq-dump",
+                f"{data.sra_id}",
+                "--outdir",
+                str(output_dir),
+                "--split-files",
+                "--include-technical",
+                "--verbose",
+                "--progress",
+                "--mem",
+                f"{170_000}MB",
+                "--threads",
+                "80",
+            ],
+            check=True,
+        )
+        return LatchDir(output_dir, data.output_location.remote_path)
+    except subprocess.CalledProcessError:
+        print(f"Failed to download {data.sra_id} - skipping.")
+        return None
+
+
+@small_task
+def write_to_registry(
+    download_type_fork: str,
+    table_type_fork: str,
+    new_table_project_id: Optional[str],
+    new_table_name: Optional[str],
+    sra_project: Optional[str],
+    output_location: LatchDir,
+    existing_table_id: Optional[str],
+    # hack to make sure this runs after the map task is done
+    barrier: List[Optional[LatchDir]],
+) -> LatchDir:
+    if download_type_fork == "sra_ids" or sra_project is None:
+        return output_location
+    if table_type_fork == "no_table":
+        return output_location
+    if existing_table_id is None and table_type_fork == "use_existing":
+        return output_location
+    if (
+        new_table_project_id is None or new_table_name is None
+    ) and table_type_fork == "create_new":
+        return output_location
 
     sra_db = sra.SRAweb()
     df: pd.DataFrame = sra_db.sra_metadata(sra_project)
@@ -77,54 +130,47 @@ def download(
     srx_index = df.columns.get_loc("experiment_accession")
 
     columns_to_idxs = {str(column): df.columns.get_loc(column) for column in df}
-    if metadata_table_id is not None:
-        t = Table(metadata_table_id)
-        with t.update() as u:
-            for column in df:
-                u.upsert_column(str(column), str)
-            u.upsert_column("Downloaded", LatchDir)
+
+    t = None
+    if table_type_fork == "use_existing":
+        assert existing_table_id is not None
+
+        t = Table(existing_table_id)
+    elif table_type_fork == "create_new":
+        assert new_table_project_id is not None
+        assert new_table_name is not None
+
+        p = Project(new_table_project_id)
+        with p.update() as u:
+            u.upsert_table(new_table_name)
+        tables = p.list_tables()
+        for x in tables:
+            if x.get_display_name() == new_table_name:
+                t = x
+                break
+
+    if t is None:
+        return output_location
+
+    with t.update() as u:
+        for column in df:
+            u.upsert_column(str(column), str)
+        u.upsert_column("Downloaded", LatchDir)
 
     for row in df.itertuples(index=False):
-        srx_id = row[srx_index]
-        sra_id = row[sra_index]
+        with t.update() as u:
+            srx_id = row[srx_index]
+            sra_id = row[sra_index]
 
-        output_dir = Path(f"/root/pysradb_downloads/{sra_project}/{srx_id}")
-        output_dir.mkdir(parents=True, exist_ok=True)
+            u.upsert_record(
+                sra_id,
+                Downloaded=LatchDir(
+                    f"{output_location.remote_directory}{sra_project}/{srx_id}"
+                ),
+                **{column: str(row[idx]) for column, idx in columns_to_idxs.items()},
+            )
 
-        subprocess.run(
-            [
-                "fasterq-dump",
-                f"{sra_id}",
-                "--outdir",
-                str(output_dir),
-                "--split-files",
-                "--include-technical",
-                "--verbose",
-                "--mem",
-                "10000MB",
-                "--threads",
-                "8",
-            ],
-            check=True,
-        )
-
-        if metadata_table_id is not None:
-            t = Table(metadata_table_id)
-            with t.update() as u:
-                u.upsert_record(
-                    sra_id,
-                    Downloaded=LatchDir(
-                        f"{output_location.remote_directory}/{sra_project}/{srx_id}"
-                    ),
-                    **{
-                        column: str(row[idx]) for column, idx in columns_to_idxs.items()
-                    },
-                )
-
-    return LatchDir(
-        "/root/pysradb_downloads",
-        output_location.remote_directory,
-    )
+    return output_location
 
 
 """The metadata included here will be injected into your interface."""
@@ -139,13 +185,25 @@ metadata = LatchMetadata(
             display_name="Download Type",
             description="Either download a whole SRA Project or a set of Runs",
         ),
+        "table_type_fork": LatchParameter(
+            display_name="Registry Output Type",
+            description="Either write to an existing table or create a new one",
+        ),
+        "new_table_project_id": LatchParameter(
+            display_name="Registry Project ID",
+            description="ID of the project to create the new table in.",
+        ),
+        "new_table_name": LatchParameter(
+            display_name="Registry Table Name",
+            description="Name of the new table.",
+        ),
         "sra_ids": LatchParameter(
-            display_name="Run IDs",
+            display_name="SRA Run IDs",
             description="A list of SRA Run IDs to download",
             batch_table_column=True,
         ),
         "sra_project": LatchParameter(
-            display_name="Project ID",
+            display_name="SRA Project ID",
             description="An SRA Project ID to download",
             batch_table_column=True,
         ),
@@ -155,7 +213,7 @@ metadata = LatchMetadata(
             batch_table_column=True,
             output=True,
         ),
-        "metadata_table_id": LatchParameter(
+        "existing_table_id": LatchParameter(
             display_name="Output Metadata Table",
             description="Optional Table to store Project Metadata",
             batch_table_column=True,
@@ -173,7 +231,27 @@ metadata = LatchMetadata(
             ),
             sra_project=ForkBranch(
                 "Specify Project ID",
-                Params("sra_project", "metadata_table_id"),
+                Params("sra_project"),
+                Fork(
+                    fork="table_type_fork",
+                    display_name="",
+                    use_existing=ForkBranch(
+                        "Use Existing Table",
+                        Params("existing_table_id"),
+                        _tmp_unwrap_optionals=["existing_table_id"],
+                    ),
+                    create_new=ForkBranch(
+                        "Create New Table",
+                        Params("new_table_project_id", "new_table_name"),
+                        _tmp_unwrap_optionals=[
+                            "new_table_project_id",
+                            "new_table_name",
+                        ],
+                    ),
+                    no_table=ForkBranch(
+                        "No Registry Output",
+                    ),
+                ),
                 _tmp_unwrap_optionals=["sra_project"],
             ),
         ),
@@ -185,21 +263,36 @@ metadata = LatchMetadata(
 @workflow(metadata)
 def sra_fetcher(
     download_type_fork: str,
+    table_type_fork: str,
+    new_table_project_id: Optional[str],
+    new_table_name: Optional[str],
     sra_project: Optional[str],
     sra_ids: Optional[List[str]],
     output_location: LatchDir = LatchDir("latch:///SRA FASTQs/"),
-    metadata_table_id: Optional[str] = None,
+    existing_table_id: Optional[str] = None,
 ) -> LatchDir:
     """Download .sra file from accession number, unpack it into FASTQs, gunzip them, and deposit them into Latch Data.
 
     # SRA FASTQ Fetcher
     """
-    return download(
+    data = generate_downloads(
         download_type_fork=download_type_fork,
         sra_project=sra_project,
         sra_ids=sra_ids,
         output_location=output_location,
-        metadata_table_id=metadata_table_id,
+    )
+
+    barrier = map_task(download)(data=data)
+
+    return write_to_registry(
+        download_type_fork=download_type_fork,
+        table_type_fork=table_type_fork,
+        new_table_project_id=new_table_project_id,
+        new_table_name=new_table_name,
+        sra_project=sra_project,
+        output_location=output_location,
+        existing_table_id=existing_table_id,
+        barrier=barrier,
     )
 
 

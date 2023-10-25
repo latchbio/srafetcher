@@ -1,5 +1,8 @@
 .latch
 .logs
-.venv
+**/.venv
+**/.git
+**/build
+**/dist
 .latch_report.tar.gz
 **/__pycache__
