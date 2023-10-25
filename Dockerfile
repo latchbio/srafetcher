@@ -12,9 +12,7 @@ RUN curl -O https://ftp-trace.ncbi.nlm.nih.gov/sra/sdk/$SRA_TOOLKIT_VERSION/srat
 
 ENV PATH=/root/sratoolkit.$SRA_TOOLKIT_VERSION-ubuntu64/bin:$PATH
 
-COPY latch /root/latch
-RUN pip install /root/latch
-RUN pip install --upgrade pysradb
+RUN pip install --upgrade latch pysradb
 
 COPY wf /root/wf
 

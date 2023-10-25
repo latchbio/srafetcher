@@ -1,28 +1,34 @@
-import functools
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
 import pandas as pd
 import pysradb as sra
-
 from latch.registry.project import Project
 from latch.registry.table import Table
 from latch.resources.launch_plan import LaunchPlan
 from latch.resources.map_tasks import map_task
 from latch.resources.tasks import large_task, small_task
 from latch.resources.workflow import workflow
-from latch.types import (
-    Fork,
-    ForkBranch,
-    LatchAuthor,
-    LatchDir,
-    LatchMetadata,
-    LatchParameter,
-    Params,
-)
+from latch.types import Fork
+from latch.types import ForkBranch as OGForkBranch
+from latch.types import LatchAuthor, LatchDir, LatchMetadata, LatchParameter, Params
+from latch.types.metadata import FlowBase
+
+
+@dataclass(frozen=True, init=False)
+class ForkBranch(OGForkBranch):
+    def __init__(
+        self,
+        display_name: str,
+        *flow: FlowBase,
+        _tmp_unwrap_optionals: Optional[List[str]] = None,
+    ):
+        object.__setattr__(self, "display_name", display_name)
+        object.__setattr__(self, "flow", list(flow))
+        if _tmp_unwrap_optionals is not None:
+            object.__setattr__(self, "_tmp_unwrap_optionals", _tmp_unwrap_optionals)
 
 
 @dataclass
@@ -67,26 +73,31 @@ def generate_downloads(
 
 
 @large_task
-def download(data: DownloadData) -> LatchDir:
+def download(data: DownloadData) -> Optional[LatchDir]:
     output_dir = Path("downloaded")
     output_dir.mkdir(exist_ok=True)
-    subprocess.run(
-        [
-            "fasterq-dump",
-            f"{data.sra_id}",
-            "--outdir",
-            str(output_dir),
-            "--split-files",
-            "--include-technical",
-            "--verbose",
-            "--mem",
-            "10000MB",
-            "--threads",
-            "8",
-        ],
-        check=True,
-    )
-    return LatchDir(output_dir, data.output_location.remote_directory)
+    try:
+        subprocess.run(
+            [
+                "fasterq-dump",
+                f"{data.sra_id}",
+                "--outdir",
+                str(output_dir),
+                "--split-files",
+                "--include-technical",
+                "--verbose",
+                "--progress",
+                "--mem",
+                f"{170_000}MB",
+                "--threads",
+                "80",
+            ],
+            check=True,
+        )
+        return LatchDir(output_dir, data.output_location.remote_path)
+    except subprocess.CalledProcessError:
+        print(f"Failed to download {data.sra_id} - skipping.")
+        return None
 
 
 @small_task
@@ -98,7 +109,8 @@ def write_to_registry(
     sra_project: Optional[str],
     output_location: LatchDir,
     existing_table_id: Optional[str],
-    barrier: List[LatchDir],  # hack to make sure this runs after the map task is done
+    # hack to make sure this runs after the map task is done
+    barrier: List[Optional[LatchDir]],
 ) -> LatchDir:
     if download_type_fork == "sra_ids" or sra_project is None:
         return output_location
@@ -121,8 +133,13 @@ def write_to_registry(
 
     t = None
     if table_type_fork == "use_existing":
+        assert existing_table_id is not None
+
         t = Table(existing_table_id)
     elif table_type_fork == "create_new":
+        assert new_table_project_id is not None
+        assert new_table_name is not None
+
         p = Project(new_table_project_id)
         with p.update() as u:
             u.upsert_table(new_table_name)
