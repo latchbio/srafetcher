@@ -71,7 +71,7 @@ def generate_downloads(
 
     return outputs
 
-@custom_task(cpu=32, memory=128, storage_gib=1000)
+@custom_task(cpu=32, memory=5, storage_gib=1000)
 def download(data: DownloadData) -> Optional[LatchDir]:
     output_dir = Path("downloaded") 
     output_dir.mkdir(exist_ok=True)
