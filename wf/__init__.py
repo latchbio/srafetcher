@@ -9,7 +9,7 @@ from latch.registry.project import Project
 from latch.registry.table import Table
 from latch.resources.launch_plan import LaunchPlan
 from latch.resources.map_tasks import map_task
-from latch.resources.tasks import large_task, small_task
+from latch.resources.tasks import large_task, small_task, custom_task
 from latch.resources.workflow import workflow
 from latch.types import Fork
 from latch.types import ForkBranch as OGForkBranch
@@ -71,12 +71,22 @@ def generate_downloads(
 
     return outputs
 
-
-@large_task
+@custom_task(cpu=32, memory=128, storage_gib=1000)
 def download(data: DownloadData) -> Optional[LatchDir]:
-    output_dir = Path("downloaded")
+    output_dir = Path("downloaded") 
     output_dir.mkdir(exist_ok=True)
     try:
+        # Prefetch SRA Accession
+        subprocess.run(
+            [
+                "prefetch",
+                f"{data.sra_id}",
+                "--max-size",
+                "100g"
+            ],
+            check=True,
+        )
+        # Generate fastq files
         subprocess.run(
             [
                 "fasterq-dump",
@@ -90,7 +100,7 @@ def download(data: DownloadData) -> Optional[LatchDir]:
                 "--mem",
                 f"{170_000}MB",
                 "--threads",
-                "80",
+                "28",
             ],
             check=True,
         )
