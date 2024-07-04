@@ -1,0 +1,17 @@
+Metadata-Version: 2.1
+Name: latch-sdk-config
+Version: 0.0.4
+Summary: Configuration for the Latch SDK
+Home-page: UNKNOWN
+Author-email: ayush@latch.bio
+License: UNKNOWN
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Requires-Python: >=3.8,<3.12
+License-File: LICENSE
+
+UNKNOWN
+

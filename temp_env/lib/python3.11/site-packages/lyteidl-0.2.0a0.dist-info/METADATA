@@ -1,0 +1,14 @@
+Metadata-Version: 2.1
+Name: lyteidl
+Version: 0.2.0a0
+Summary: IDL for Flyte Platform
+Home-page: https://www.github.com/flyteorg/flyteidl
+Maintainer: FlyteOrg
+Maintainer-email: admin@flyte.org
+License-File: LICENSE
+License-File: NOTICE
+Requires-Dist: googleapis-common-protos
+Requires-Dist: protoc-gen-swagger
+Requires-Dist: protobuf (<4.0.0,>=3.5.0)
+Requires-Dist: typing (>=3.6) ; python_version=="2.7"
+

@@ -1,0 +1,23 @@
+Metadata-Version: 2.1
+Name: lytekitplugins-pods
+Version: 0.6.2
+Summary: Flytekit plugin to support K8s Pod tasks
+Author: flyteorg
+Author-email: admin@flyte.org
+License: apache2
+Classifier: Intended Audience :: Science/Research
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Topic :: Scientific/Engineering
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Topic :: Software Development
+Classifier: Topic :: Software Development :: Libraries
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Requires-Python: >=3.7
+Requires-Dist: kubernetes (>=12.0.1)
+Requires-Dist: lytekit (>=0.15.3)
+

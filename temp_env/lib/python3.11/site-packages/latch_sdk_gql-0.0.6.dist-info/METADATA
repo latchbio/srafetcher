@@ -1,0 +1,21 @@
+Metadata-Version: 2.1
+Name: latch-sdk-gql
+Version: 0.0.6
+Summary: Internal Latch GQL package
+Home-page: UNKNOWN
+Author-email: ayush@latch.bio
+License: UNKNOWN
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Requires-Python: >=3.8,<3.12
+License-File: LICENSE
+Requires-Dist: latch-sdk-config (==0.0.4)
+Requires-Dist: gql (==3.4.0)
+Requires-Dist: graphql-core (==3.2.3)
+Requires-Dist: requests-toolbelt (==0.10.1)
+
+UNKNOWN
+

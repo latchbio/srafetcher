@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import pandas as pd
-import pysradb as sra
+import pysradb as sra 
 from latch.registry.project import Project
 from latch.registry.table import Table
 from latch.resources.launch_plan import LaunchPlan
