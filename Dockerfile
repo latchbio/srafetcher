@@ -5,10 +5,11 @@ WORKDIR /root
 RUN apt-get update && apt-get install curl pigz -y
 
 # explicitly setting version bc the "current" distribution is out of date
-ENV SRA_TOOLKIT_VERSION="3.0.2"
+ENV SRA_TOOLKIT_VERSION="3.0.7"
 
 RUN curl -O https://ftp-trace.ncbi.nlm.nih.gov/sra/sdk/$SRA_TOOLKIT_VERSION/sratoolkit.$SRA_TOOLKIT_VERSION-ubuntu64.tar.gz &&\
-    tar -xvzf sratoolkit.$SRA_TOOLKIT_VERSION-ubuntu64.tar.gz
+    tar -xvzf sratoolkit.$SRA_TOOLKIT_VERSION-ubuntu64.tar.gz &&\
+    rm sratoolkit.$SRA_TOOLKIT_VERSION-ubuntu64.tar.gz
 
 ENV PATH=/root/sratoolkit.$SRA_TOOLKIT_VERSION-ubuntu64/bin:$PATH
 
